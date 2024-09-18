@@ -1,64 +1,68 @@
 program main
 use QGN_Module
 implicit none
-real(dp) :: q0(nx,ny,nz) ! Initial condition
 complex(dp) :: q_hat(nx/2+1,ny,nz)
-real(dp) :: t = 0._dp, dt = 750._dp
-integer :: i, j, N0 = 1, Nt = 10, diag_freq = 10000, chkpt_freq = 1, out_freq = 1 
+real(dp) :: t = 0._dp, dt = 86400._dp, diag_freq = 5._dp*86400._dp, chkpt_freq = 10._dp*86400._dp
+integer :: i, j, N0 = 1, Nt = 14400, out_freq = 1
 character(len=32) :: arg
 character(len=16) :: file_name
 
+real(dp) :: TE
+integer :: n_diag, n_chkpt
+integer :: last_diag = 0
+integer :: last_chkpt = 10
+
 do i = 1, command_argument_count()
     call get_command_argument(i,arg)
-    if (len_trim(arg) == 0) exit 
-    read (arg,*) N0 
+    if (len_trim(arg) == 0) exit
+    read (arg,*) N0
 end do
 print *,'---------------------------------------------------------------'
 print *,' Starting iteration  '
 print *, N0
-print *,'---------------------------------------------------------------'
 
-if( N0 > 1 ) then
-   ! Initialize from a saved file
-   write (file_name,'(A2,I0.9,A4)') "q.",N0,'.dat'
-   print *,'---------------------------------------------------------------'
-   print *,' Opening q0 file  '
-   print *,  file_name
-   print *,'---------------------------------------------------------------'
-   open(unit=10,file=file_name,access='STREAM',status='OLD')
-   read(unit=10) q0
-   close(unit=10)
+call Initialize(q_hat,N0)
 
-else
-   ! Define the initial condition below. 
-   ! call RANDOM_NUMBER(q0)
-   ! do i=1,nz
-   !     q0(:,:,i) = 1.E-9_dp*(q0(:,:,i) - sum(q0(:,:,i))/real(nx*ny,dp))
-   ! end do
-   do i=1,nx
-       do j=1,ny
-           q0(i,j,:) = 1.E-5_dp*sin(48._dp*pi*real(i-1,dp)/real(nx,dp))
-           q0(i,j,:) = q0(i,j,:) + 2.E-5_dp*cos(32._dp*pi*real(j-1,dp)/real(ny,dp))
-       end do
-   end do
-
+if( N0 == 1 ) then
+   call WriteQP(q_hat,0) ! Writes q and psi
+   call WriteKE(q_hat,1) ! Writes KE.dat
 end if
 
-call Initialize(q0,q_hat)
-call WriteQP(q_hat,1,0) ! Writes q and psi to q.dat and p.dat.
-do i=N0,N0+Nt
+print *,'---------------------------------------------------------------'
+
+do i=N0,N0+Nt-1
     call TimeStep(q_hat,t,dt)
-    if( mod(i,out_freq)==0 ) print *, 'Time since inception = ',real(t/86400._dp),'days; time step size = ',real(dt),'s'
-    if( mod(i,diag_freq)==0 ) then
-        print *, ' Diagnostics, RecNo = ', i/diag_freq
-        ! If you want any diagnostics beyond QP and QP Modal, you have to write your own subroutine and call it here.
+
+    if( mod(i,out_freq)==0 ) then
+        call GetTE(q_hat, TE)
+        print *, i-N0+1,',',real(t/86400._dp),',',real(dt),',',real(TE)
     end if
-    if( mod(i,chkpt_freq)==0 ) then
-        call WriteQP(q_hat,1,i) ! Writes q and psi to q.dat and p.dat.
-                              ! Good for restarts.
-        call WriteQPmodal(q_hat,1,i) ! Writes q and psi to q.dat and p.dat.
+
+    n_diag = INT(t/diag_freq)
+    if( n_diag > last_diag ) then
+        !print *, 'Diagnostics at t ', real(t/86400._dp), 'days'
+        call WriteKE(q_hat, 0) ! Writes KE.dat
+        call WriteWB(q_hat, i)
+        last_diag = n_diag
     end if
+    n_chkpt = INT(t/chkpt_freq)
+    if( n_chkpt > last_chkpt ) then
+        call WriteQP(q_hat,i) ! Writes q and psi
+        !call WriteQPmodal(q_hat,i)
+        !call WriteWB(q_hat, i)
+        last_chkpt = n_chkpt
+    end if
+
+    dt = MAX(1._dp, MIN(dt, (n_diag+1)*diag_freq - t, (n_chkpt+1)*chkpt_freq - t))
 end do
+
+n_chkpt = INT(t/chkpt_freq)
+if( n_chkpt > last_chkpt ) then
+    call WriteQP(q_hat,i) ! Writes q and psi
+    !call WriteQPmodal(q_hat,i)
+    call WriteWB(q_hat, i)
+end if
+
 call Cleanup
 
 end program main

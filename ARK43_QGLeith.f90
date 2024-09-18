@@ -2,18 +2,20 @@
     complex(dp), dimension(nx/2+1,ny,nz) :: N1, N2, N3, N4, N5, N6
     complex(dp), dimension(nx/2+1,ny,nz) :: L1, L2, L3, L4, L5, L6
     complex(dp), dimension(nx/2+1,ny,nz) :: q_tmp, Mq
-    real(dp), dimension(nx/2+1,ny), save :: k8
-    real(dp) :: A8L(nz), d_phys(nx,ny,nz) ! For QG-Leith scaling
     real(dp), save :: err0, err1 ! current and previous errors for adaptive time step
     real(dp), dimension(6,6), save :: ae, ai ! explicit & implicit RK coefficients
     real(dp), dimension(6), save :: b, be ! be is error coefficients
     logical, save  :: FirstCall = .TRUE.
     logical :: reject
+    ! For QG-Leith
+    complex(dp),    dimension(nx/2+1,ny) :: theta_hat_top, theta_hat_bot ! dpsi/dz at the top and bottom
+    real(dp), dimension(nx/2+1,ny), save :: k4
+    real(dp)                             :: A4L(0:nz+1)
 
     reject = .TRUE.
 
     if (FirstCall) then
-        k8 = k2**4
+        k4 = k2**2
         err0 = TOL
         ae = 0._dp
         ae(2,1) = 0.5_dp
@@ -59,55 +61,63 @@
         FirstCall = .FALSE.
     end if
 
-    ! QG Leith scaling for hyperviscosity
-    do k=1,nz
-        spec(:,:,k) = k8*q_hat(:,:,k)
-    end do
-    Status = DftiComputeBackward(s2g_q, specE, gridE)
-    d_phys = grid/real(nx*ny,dp)
-    spec = q_hat
-    Status = DftiComputeBackward(s2g_q, specE, gridE)
-    q_phys = grid/real(nx*ny,dp)
-    do k=1,nz
-        A8L(k) = (1.3*Lx/(nx*pi))**12 * sqrt( sum(q_phys(:,:,k)*d_phys(:,:,k))/real(nx*ny,dp) )
-    end do
+    ! QG Leith scaling for hyperviscosity -- biharmonic, computed in spectral space 
+    if( QG_Leith_coeff > 0._dp ) then
+        ! Get Smagorinsky coefficient for top-surface buoyancy
+        call GetB(q_hat,b_hat_top=theta_hat_top,b_hat_bot=theta_hat_bot)
+        theta_hat_top = theta_hat_top / f0
+        theta_hat_bot = theta_hat_bot / f0
+        A4L(0) = (QG_Leith_coeff*1.5_dp*Lx/(nx*pi))**5 * sqrt(2*sum(k4*abs(theta_hat_top(:,:))**2) ) / real(nx*ny,dp)
+        ! Get Leith-scaled coefficient for top-surface PV
+        A4L(1) = (QG_Leith_coeff*1.5_dp*Lx/(nx*pi))**6 * sqrt(2*sum(k4*abs(q_hat(:,:,1) + S(0) * theta_hat_top(:,:) / H(1))**2) ) / real(nx*ny,dp)
+        ! Get Leith-scaled coefficient for interior PV
+        do k=2,nz-1
+            A4L(k) = (QG_Leith_coeff*1.5_dp*Lx/(nx*pi))**6 * sqrt( 2*sum(k4*abs(q_hat(:,:,k))**2) ) / real(nx*ny,dp) 
+        end do
+        ! Get Smagorinsky coefficient for bottom-surface buoyancy
+        A4L(nz+1) = (QG_Leith_coeff*1.5_dp*Lx/(nx*pi))**5 * sqrt(2*sum(k4*abs(theta_hat_bot(:,:))**2) ) / real(nx*ny,dp)
+        ! Get Leith-scaled coefficient for bottom-surface PV
+        A4L(nz) = (QG_Leith_coeff*1.5_dp*Lx/(nx*pi))**6 * sqrt(2*sum(k4*abs(q_hat(:,:,nz) - S(nz) * theta_hat_bot(:,:) / H(nz))**2) ) / real(nx*ny,dp)
+        ! Use a depth-independent value equal to the max
+        A4L(:) = MAXVAL(A4L(:))
+    end if
 
     ! First RK stage, t=0
     call GetRHS(q_hat, N1)
     do k=1,nz
-        L1(:,:,k) = -(A2*k2 + A8L(k)*k8)*q_hat(:,:,k)
+        L1(:,:,k) = -(A2*k2 + A4L(k)*k4)*q_hat(:,:,k)
     end do
     
 do while (reject)
     do k=1,nz
-        Mq(:,:,k) = 1._dp/(1._dp + 0.25_dp*dt*(A2*k2+A8L(k)*k8))
+        Mq(:,:,k) = 1._dp/(1._dp + 0.25_dp*dt*(A2*k2+A4L(k)*k4))
     end do
     ! Second RK stage
     q_tmp = Mq*(q_hat + dt*(ae(2,1)*N1+ai(2,1)*L1))
     call GetRHS(q_tmp,N2)
     do k=1,nz
-        L2(:,:,k) = -(A2*k2 + A8L(k)*k8)*q_tmp(:,:,k)
+        L2(:,:,k) = -(A2*k2 + A4L(k)*k4)*q_tmp(:,:,k)
     end do
     ! Third RK stage
     q_tmp = Mq*(q_hat + dt*(ae(3,1)*N1+ae(3,2)*N2 &
                            +ai(3,1)*L1+ai(3,2)*L2))
     call GetRHS(q_tmp,N3)
     do k=1,nz
-        L3(:,:,k) = -(A2*k2 + A8L(k)*k8)*q_tmp(:,:,k)
+        L3(:,:,k) = -(A2*k2 + A4L(k)*k4)*q_tmp(:,:,k)
     end do
     ! Fourth RK stage
     q_tmp = Mq*(q_hat + dt*(ae(4,1)*N1+ae(4,2)*N2+ae(4,3)*N3 &
                           &+ai(4,1)*L1+ai(4,2)*L2+ai(4,3)*L3 ))
     call GetRHS(q_tmp,N4)
     do k=1,nz
-        L4(:,:,k) = -(A2*k2 + A8L(k)*k8)*q_tmp(:,:,k)
+        L4(:,:,k) = -(A2*k2 + A4L(k)*k4)*q_tmp(:,:,k)
     end do
     ! Fifth RK stage
     q_tmp = Mq*(q_hat+dt*(ae(5,1)*N1+ae(5,2)*N2+ae(5,3)*N3+ae(5,4)*N4 &
                          +ai(5,1)*L1+ai(5,2)*L2+ai(5,3)*L3+ai(5,4)*L4 ))
     call GetRHS(q_tmp,N5)
     do k=1,nz
-        L5(:,:,k) = -(A2*k2 + A8L(k)*k8)*q_tmp(:,:,k)
+        L5(:,:,k) = -(A2*k2 + A4L(k)*k4)*q_tmp(:,:,k)
     end do
     ! Sixth RK stage
     q_tmp = Mq*(q_hat + dt*(ae(6,1)*N1+ae(6,2)*N2+ae(6,3)*N3 &
@@ -115,9 +125,9 @@ do while (reject)
                            +ai(6,2)*L2+ai(6,3)*L3+ai(6,4)*L4+ai(6,5)*L5 ))
     call GetRHS(q_tmp,N6)
     do k=1,nz
-        L6(:,:,k) = -(A2*k2 + A8L(k)*k8)*q_tmp(:,:,k)
+        L6(:,:,k) = -(A2*k2 + A4L(k)*k4)*q_tmp(:,:,k)
     end do
-    ! Error control, upper layer only
+    ! Error control
     spec = be(1)*(N1+L1)+be(3)*(N3+L3)  &
           +be(4)*(N4+L4)+be(5)*(N5+L5)+be(6)*(N6+L6)
     Status = DftiComputeBackward(s2g_q, specE, gridE)
@@ -135,6 +145,8 @@ do while (reject)
         t = t + dt
         ! Stepsize adjustment PI.3.4, divide by 4 for 4th order method with 3rd embedded
         dt = MIN(dt*((0.2_dp*TOL/err1)**0.075_dp)*((err0/err1)**0.1_dp),dt_max)
+        ! Stepsize adjustment PI.4.2, divide by 4 for 4th order method with 3rd embedded
+        !dt = MIN(dt*((0.25_dp*TOL/err1)**0.1_dp)*((err0/err1)**0.05_dp),dt_max)
         err0 = err1
         reject = .FALSE.
     end if
