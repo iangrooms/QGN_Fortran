@@ -16,7 +16,7 @@ include "parameters.f90"
 integer :: i, j, k, kk
 ! output identifier(s)
 integer :: outQ=30, outP=31, outPsi=32, outWR=33, outWL=34, outWN=35
-integer :: outQm=35, outPm=36, outJm=37, outKE=38, outB=39
+integer :: outQm=35, outPm=36, outJm=37, outKE=38, outB=39, outWB=40
 ! Location of horizontal grid
 real(dp) :: x(nx,ny), y(nx,ny)
 ! Vertical layer depths: H(nz) is the bottom layer; S=f^2/N^2(z)
@@ -728,8 +728,8 @@ subroutine WriteWB(q_hat, nt)
     complex(dp), dimension(nx/2+1,ny,nz)   :: temp, jaco_hat
     complex(dp), dimension(nx/2+1,ny,nz-1) :: wRHS
     complex(dp), dimension(nx/2+1,ny,0:nz) :: b_hat
-    real(dp), dimension(nx,ny,0:nz) :: w_phys, b_phys
-    real(dp), dimension(nx,ny) :: URMS
+    real(dp), dimension(nx,ny,0:nz)  :: w_phys, b_phys
+    real(dp), dimension(nx,ny)       :: URMS
     character(len=50) :: file_name
 
     ! Get  surface buoyancy; also updates psi_hat
@@ -785,7 +785,16 @@ subroutine WriteWB(q_hat, nt)
         open(unit=outWR,file=file_name,access='STREAM',status='UNKNOWN')
         write(outWR) w_phys
         close(outWR)
+        if( nt == 1 ) then
+            open(unit=outWB,file="WB_drag.dat",access='STREAM',status='REPLACE')
+        else
+            open(unit=outWB,file="WB_drag.dat",access='STREAM',status='OLD',&
+                 position='append')
+        end if
+        write(outWB) SUM(SUM(w_phys*b_phys,1),1)/real(nx*ny,dp)
+        close(outWB)
     end if
+    
 
     ! Get wRHS for the linear terms
     if( sum(abs(uBar)) > 0._dp ) then
@@ -805,13 +814,19 @@ subroutine WriteWB(q_hat, nt)
                 & +     0.5_dp*(v_hat(:,:,k)+v_hat(:,:,k+1))*byBar(k) )
         end do
         call GetW(wRHS,w_phys)
-        w_phys(:,:,0)  = 0._dp
-        w_phys(:,:,nz) = 0._dp
         ! Write w for linear terms
         write (file_name,'(A9,I0.9,A4)') "w_linear.",nt,'.dat'
         open(unit=outWL,file=file_name,access='STREAM',status='UNKNOWN')
         write(outWL) w_phys
         close(outWL)
+        if( nt == 1 ) then
+            open(unit=outWB,file="WB_linear.dat",access='STREAM',status='REPLACE')
+        else
+            open(unit=outWB,file="WB_linear.dat",access='STREAM',status='OLD',&
+                 position='append')
+        end if
+        write(outWB) SUM(SUM(w_phys*b_phys,1),1)/real(nx*ny,dp)
+        close(outWB)
     end if
 
     ! Get wRHS for the nonlinear terms
@@ -832,12 +847,19 @@ subroutine WriteWB(q_hat, nt)
         wRHS(:,:,k) = wRHS(:,:,k) + k2*jaco_hat(:,:,k)
     end do
     call GetW(wRHS,w_phys)
-    w_phys(:,:,nz) = 0._dp
     ! Write w for nonlinear terms
     write (file_name,'(A2,I0.9,A4)') "w.",nt,'.dat'
     open(unit=outWN,file=file_name,access='STREAM',status='UNKNOWN')
     write(outWN) w_phys
     close(outWN)
+    if( nt == 1 ) then
+        open(unit=outWB,file="WB.dat",access='STREAM',status='REPLACE')
+    else
+        open(unit=outWB,file="WB.dat",access='STREAM',status='OLD',&
+             position='append')
+    end if
+    write(outWB) SUM(SUM(w_phys*b_phys,1),1)/real(nx*ny,dp)
+    close(outWB)
 
 end subroutine WriteWB
 

@@ -26,6 +26,7 @@ call Initialize(q_hat,N0)
 if( N0 == 1 ) then
    call WriteQP(q_hat,0) ! Writes q and psi
    call WriteKE(q_hat,1) ! Writes KE.dat
+   call WriteWB(q_hat,1) ! Writes w, b, and WB
 end if
 
 print *,'---------------------------------------------------------------'
