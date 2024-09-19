@@ -34,7 +34,7 @@ do while (reject)
     err_phys = grid/real(nx*ny,dp)
     r1 = dt*MAXVAL(ABS(err_phys))
     if( r1>TOL ) then
-        dt = 0.75_dp*dt
+        dt = 0.5_dp*dt
         reject = .TRUE.
     else
         ! RK, compute update
@@ -43,7 +43,7 @@ do while (reject)
         ! FSAL
         RHS0 = RHS3
         ! Stepsize adjustment
-        dt = MIN(dt*((0.75_dp*TOL/r1)**0.1_dp)*((r0/r1)**(0.4_dp/3._dp)),dt_max)
+        dt = MIN(dt*((0.2_dp*TOL/r1)**0.1_dp)*((r0/r1)**(0.4_dp/3._dp)),dt_max)
         r0 = r1
         reject = .FALSE.
     end if

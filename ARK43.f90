@@ -109,7 +109,7 @@ do while (reject)
     Status = DftiComputeBackward(s2g_q, specE, gridE)
     err1 = dt*MAXVAL(ABS(grid))/real(nx*ny,dp)
     if( err1>TOL ) then
-        dt = 0.75_dp*dt
+        dt = 0.5_dp*dt
         reject = .TRUE.
     else
         ! RK, compute update
@@ -119,7 +119,7 @@ do while (reject)
         q_hat(1,1,:) = cmplx(0._dp,0._dp)
         t = t + dt
         ! Stepsize adjustment PI.3.4, divide by 4 for 4th order method with 3rd embedded
-        dt = MIN(dt*((0.75_dp*TOL/err1)**0.075_dp)*((err0/err1)**0.1_dp),dt_max)
+        dt = MIN(dt*((0.2_dp*TOL/err1)**0.075_dp)*((err0/err1)**0.1_dp),dt_max)
         err0 = err1
         reject = .FALSE.
     end if
