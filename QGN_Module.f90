@@ -700,21 +700,27 @@ end subroutine GetW
 subroutine GetB(q_hat, b_hat_top, b_hat_bot)
     complex(dp), dimension(nx/2+1,ny,nz),         intent(in) :: q_hat  
     complex(dp), dimension(nx/2+1,ny), optional, intent(out) :: b_hat_top, b_hat_bot  
-    real(dp), save :: c1, c2, c3
+    real(dp), save :: c1t, c2t, c3t
+    real(dp), save :: c1b, c2b, c3b
     logical, save  :: FirstCall = .TRUE.
 
     if (FirstCall) then
-        c1 = 2._dp*(3._dp*H(1) + 2._dp*H(2) + H(3)) / &
-             ( (H(1) + H(2)) * (H(1) + H(2) + H(3)) )
-        c3 = 2._dp*(2._dp*H(1) + H(2)) / &
-             ( (H(2) + H(3)) * (H(1) + H(2) + H(3)) )
-        c2 = -(c1 + c3)
+        c1t = 2._dp*(3._dp*H(1) + 2._dp*H(2) + H(3)) / &
+              ( (H(1) + H(2)) * (H(1) + H(2) + H(3)) )
+        c3t = 2._dp*(2._dp*H(1) + H(2)) / &
+              ( (H(2) + H(3)) * (H(1) + H(2) + H(3)) )
+        c2t = -(c1t + c3t)
+        c1b =-2._dp*(3._dp*H(nz) + 2._dp*H(nz-1) + H(nz-2)) / &
+              ( (H(nz) + H(nz-1)) * (H(nz) + H(nz-1) + H(nz-2)) )
+        c3b =-2._dp*(2._dp*H(nz) + H(nz-1)) / &
+              ( (H(nz-1) + H(nz-2)) * (H(nz) + H(nz-1) + H(nz-2)) )
+        c2b = -(c1b + c3b)
         FirstCall = .FALSE.
     end if
 
     call GetPsi(q_hat)
-    if (present(b_hat_top)) b_hat_top(:,:) = f0*(c1*psi_hat(:,:,1) + c2*psi_hat(:,:,2) + c3*psi_hat(:,:,3))
-    if (present(b_hat_bot)) b_hat_bot(:,:) = f0*(-c1*psi_hat(:,:,nz) - c2*psi_hat(:,:,nz-1) - c3*psi_hat(:,:,nz-2))
+    if (present(b_hat_top)) b_hat_top(:,:) = f0*(c1t*psi_hat(:,:,1) + c2t*psi_hat(:,:,2) + c3t*psi_hat(:,:,3))
+    if (present(b_hat_bot)) b_hat_bot(:,:) = f0*(c1b*psi_hat(:,:,nz) + c2b*psi_hat(:,:,nz-1) + c3b*psi_hat(:,:,nz-2))
 
 end subroutine GetB
 
@@ -756,6 +762,7 @@ subroutine WriteWB(q_hat, nt)
     ! Linear drag
     if( r0 > 0._dp ) wRHS(:,:,nz-1) = 2._dp*(r0*k2*Htot*f0 / (H(nz)*(H(nz)+H(nz-1))))*psi_hat(:,:,nz)
     ! quadratic drag
+    temp(:,:,:) = 0._dp  
     if( C_d > 0._dp ) then
         u_hat(:,:,nz) =-cmplx(0._dp,1._dp)*ky*psi_hat(:,:,nz)
         v_hat(:,:,nz) = cmplx(0._dp,1._dp)*kx*psi_hat(:,:,nz)
@@ -773,11 +780,11 @@ subroutine WriteWB(q_hat, nt)
         grid_1 = URMS*v_phys(:,:,nz)
         Status = DftiComputeForward(g2s_1, gridE_1, specE_1)
         temp(:,:,nz) = temp(:,:,nz) - cmplx(0._dp,1._dp)*kx*spec_1
-        wRHS(:,:,nz-1) = wRHS(:,:,nz-1) - 2._dp*(f0*C_d*Htot/(H(nz)*(H(nz)+H(nz-1))))*temp(:,:,nz)
+        wRHS(:,:,nz-1) = wRHS(:,:,nz-1) + 2._dp*(f0*C_d*Htot/(H(nz)*(H(nz)+H(nz-1))))*temp(:,:,nz)
     end if
     if( (r0 > 0._dp) .or. (C_d > 0._dp) ) then
         call GetW(wRHS,w_phys)
-        spec_1 = (Htot/f0)*(-r0*k2*psi_hat(:,:,nz) + C_d*temp(:,:,nz))
+        spec_1 = (Htot/f0)*(-r0*k2*psi_hat(:,:,nz) - C_d*temp(:,:,nz))
         Status = DftiComputeBackward(s2g_1, specE_1, gridE_1)
         w_phys(:,:,nz) = grid_1/real(nx*ny,dp)
         ! Write w for bottom drag
