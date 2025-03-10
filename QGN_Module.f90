@@ -19,8 +19,8 @@ integer :: outQ=30, outP=31, outPsi=32, outWR=33, outWL=34, outWN=35
 integer :: outQm=35, outPm=36, outJm=37, outKE=38, outB=39, outWB=40
 ! Location of horizontal grid
 real(dp) :: x(nx,ny), y(nx,ny)
-! Vertical layer depths: H(nz) is the bottom layer; S=f^2/N^2(z)
-real(dp) :: H(nz), S(0:nz)
+! Vertical layer depths: H(nz) is the bottom layer; S=f^2/N^2(z); Sp5 = f/N(z)
+real(dp) :: H(nz), S(0:nz), Sp5(0:nz)
 ! Zonal mean velocity profile, associated meridional PV and buoyancy gradients
 real(dp) :: uBar(nz), qyBar(nz), byBar(nz-1) 
 ! Vertical modes, EVals = -kd^2
@@ -108,6 +108,7 @@ subroutine Initialize(q_hat,N0)
     open(unit=99,file='S.dat',access='STREAM',status='OLD')
     read(99) S
     close(99)
+    Sp5 = sqrt(S)
 
     print *,'---------------------------------------------------------------'
     print *,' Layer depths  '
@@ -176,13 +177,13 @@ subroutine Initialize(q_hat,N0)
     end do
     SD2S(nz-1,nz-2) = 2._dp/(H(nz-1)*(H(nz)+H(nz-1)))
     SD2S(nz-1,nz-1) =-2._dp/(H(nz-1)*H(nz))
-    ! Now scale rows by S
+    ! Now scale rows by S^{1/2}
     do k=1,nz-1
-        SD2S(k,:) = S(k)*SD2S(k,:)
+        SD2S(k,:) = Sp5(k)*SD2S(k,:)
     end do
-    ! Now scale columns by S
+    ! Now scale columns by S^{1/2}
     do k=1,nz-1
-        SD2S(:,k) = S(k)*SD2S(:,k)
+        SD2S(:,k) = Sp5(k)*SD2S(:,k)
     end do
 
     open(unit=99,file='SD2S.dat',access='STREAM',status='REPLACE')
@@ -671,7 +672,7 @@ subroutine GetW(wRHS,w_phys)
 !$OMP PARALLEL DO 
     do k=1,nz-1
         do kk=1,nz-1
-            rhs_hat_mode(:,:,k) = rhs_hat_mode(:,:,k) + (H(kk)+H(kk+1))*WModes(kk,k)*S(kk)*wRHS(:,:,kk)
+            rhs_hat_mode(:,:,k) = rhs_hat_mode(:,:,k) + (H(kk)+H(kk+1))*WModes(kk,k)*Sp5(kk)*wRHS(:,:,kk)
         end do
         rhs_hat_mode(:,:,k) = rhs_hat_mode(:,:,k)/f0**2
         w_hat_mode(:,:,k) = -rhs_hat_mode(:,:,k)/(k2-WEVals(k))
@@ -683,7 +684,7 @@ subroutine GetW(wRHS,w_phys)
 !$OMP PARALLEL DO 
     do k=1,nz-1
         do kk=1,nz-1
-           w_hat(:,:,k) = w_hat(:,:,k) + S(k)*w_hat_mode(:,:,kk)*WModes(k,kk)
+           w_hat(:,:,k) = w_hat(:,:,k) + Sp5(k)*w_hat_mode(:,:,kk)*WModes(k,kk)
         end do
     end do
 !$OMP END PARALLEL DO
