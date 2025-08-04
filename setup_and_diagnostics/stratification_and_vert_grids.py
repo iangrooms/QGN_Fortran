@@ -30,7 +30,36 @@ def get_rho(Htot,N2,zs,f=1e-4,rho_top=1025.5,rho0=1030):
     g = 9.81
     return (f**2*rho0*Htot/g)*rho + rho_top
 
-def get_alpha_grid(nz,alpha,N2):
+def get_alpha_grid(alpha,spc,N2):
+    """
+    return an equispaced vertical grid with nz layers in the given alpha coordinate described in :
+    Rachel Robey and Ian Grooms. Continuous and discrete baroclinic modes in continuously varying stratification.
+    SIAM Journal on Applied Mathematics, 84(6):2502–2521, 2024. https://doi.org/10.1137/24M1648181.
+
+    Parameters:
+    alpha: vertical coordinate parameter, any float in [0,2]. In particular:
+           alpha = 0 uses geopotential
+           alpha = 1 uses Charney coordinate
+           alpha = 2 uses isopycnal coordinate
+    spc: target layer interfaces in [0,1] in the given, nondimensinalized alpha coordinate; from bottom (0) to top (1)
+    N2: function of the stratification/buoyancy frequency with respect to nondimensionalized depth
+
+    Return
+    z: cell interfaces of the grid
+    """
+
+    nz = len(spc) - 1
+
+    SS = lambda t: np.sqrt(N2(t)) ** alpha
+    normalization_constant = integrate.quad(SS,0,1)[0]
+    z = np.zeros(nz+1)
+    z[nz] = 1
+    for i in range(1,nz):
+        z[i] = optimize.fsolve(lambda t: integrate.quad(SS,0,t)[0] - normalization_constant*spc[i],i/nz)
+
+    return z
+
+def get_equispaced_alpha_grid(nz,alpha,N2):
     """
     return an equispaced vertical grid with nz layers in the given alpha coordinate described in :
     Rachel Robey and Ian Grooms. Continuous and discrete baroclinic modes in continuously varying stratification.
@@ -45,47 +74,64 @@ def get_alpha_grid(nz,alpha,N2):
 
     Return
     z: cell interfaces of the grid
-    zc: cell centers
-    h: cell heights
     """
-    
-    SS = lambda t: np.sqrt(N2(t)) ** alpha
-    normalization_constant = integrate.quad(SS,0,1)[0]
-    z = np.zeros(nz+1)
-    z[nz] = 1
-    for i in range(1,nz):
-        z[i] = optimize.fsolve(lambda t: integrate.quad(SS,0,t)[0] - normalization_constant*i/nz,i/nz)
 
-    return z
+    spc = list([i/nz for i in range(0,nz+1)])
 
-# Half Chebyshev grid in the Charney coordinate
-def get_CC_grid(nz,alpha,N2):
+    return get_alpha_grid(alpha,spc,N2)
+
+def get_half_Chebyshev_alpha_grid(nz,alpha,N2):
     """
-    
-    return Chebychev Tro, S., Robey, R., and Grooms, I. Ekman-driven buoyancy flux in quasigeostrophic flow. Submitted to J. Fluid Mech., Apr 2025.
+    return a half-Chebychev (bottom boundary) vertical grid with nz layers in the given alpha coordinate.
+    Usage with a Chebychev coordinate (alpha=1) is decribed in :
+    Tro, S., Robey, R., and Grooms, I. Ekman-driven buoyancy flux in quasigeostrophic flow. Submitted to J. Fluid Mech., Apr 2025.
+
+    Parameters:
+    nz: number of layers
+    alpha: vertical coordinate parameter, any float in [0,2]. In particular:
+           alpha = 0 uses geopotential
+           alpha = 1 uses Charney coordinate
+           alpha = 2 uses isopycnal coordinate
+
+    Return
+    z: cell interfaces of the grid
     """
-    
-    SS = lambda t: np.sqrt(N2(t)) ** alpha
-    normalization_constant = integrate.quad(SS,0,1)[0]
-    
-    sc = 1 - np.cos(np.pi * np.linspace(0,1,nz+1) / 2) # Interfaces at the interior points of a half-Chebyshev grid
-    
-    z = np.zeros(nz+1)
-    z[nz] = 1
-    for i in range(1,nz):
-        z[i] = optimize.fsolve(lambda t: integrate.quad(SS,0,t)[0] - normalization_constant*sc[i],i/nz)
-        
-    return z
+
+    spc = 1 - np.cos(np.pi * np.linspace(0,1,nz+1) / 2) # Interfaces at the interior points of a half-Chebyshev grid
+
+    return get_alpha_grid(alpha,spc,N2)
 
 
-def get_modes(z,h,N2strat):
+def get_full_Chebyshev_alpha_grid(nz,alpha,N2):
+    """
+    return a Chebychev  vertical grid with nz layers in the given alpha coordinate.
+    Based on usage of a half-Chebychev coordinate (alpha=1) as decribed in :
+    Tro, S., Robey, R., and Grooms, I. Ekman-driven buoyancy flux in quasigeostrophic flow. Submitted to J. Fluid Mech., Apr 2025.
+
+    Parameters:
+    nz: number of layers
+    alpha: vertical coordinate parameter, any float in [0,2]. In particular:
+           alpha = 0 uses geopotential
+           alpha = 1 uses Charney coordinate
+           alpha = 2 uses isopycnal coordinate
+
+    Return
+    z: cell interfaces of the grid
+    """
+
+    spc = (1 - np.cos(np.pi * np.linspace(0,1,nz+1) ))/2. # Interfaces at the interior points of a full-Chebyshev grid
+
+    return get_alpha_grid(alpha,spc,N2)
+
+
+def get_modes(z,h,N2):
     """
     return baroclinic radii (eigenvalues), baroclinic modes (eigenvectors), and stretching matrix L
 
     Parameters:
-    N2strat: function of the stratification/buoyancy frequency with respect to depth
     z: depth of grid interfaces
     h: heights of cells
+    N2: function of the stratification/buoyancy frequency with respect to nondimensionalized depth
 
     Return:
     vals: eigenvalues of the stratified stretching matrix
@@ -96,7 +142,7 @@ def get_modes(z,h,N2strat):
     nz = len(h)
     assert len(z) == nz+1
     
-    DS = np.diag(1/N2strat(z[1:-1]))
+    DS = np.diag(1/N2(z[1:-1]))
     D0 = np.zeros((nz-1,nz))
     D0[:,:-1] = 2*np.diag(1/(h[:-1]+h[1:]))
     D0[:,1:] = D0[:,1:] - 2*np.diag(1/(h[:-1]+h[1:]))
@@ -138,11 +184,10 @@ def get_roots_grid(nz,N2):
 
     Parameters:
     nz: number of layers
+    N2: stratification profile 
 
     Return:
-    z: cell interfaces of the grid
-    zc: cell centers
-    h: cell heights
+    zi: cell interfaces of the grid
     """
 
     zi_ref = np.linspace(0,1,1025)
@@ -163,11 +208,10 @@ def get_extrema_grid(nz,N2):
 
     Parameters:
     nz: number of layers
+    N2: stratification profile
 
     Return:
-    z: cell interfaces of the grid
-    zc: cell centers
-    h: cell heights
+    zi: cell interfaces of the grid
     """
     
     from scipy.signal import argrelextrema
@@ -187,18 +231,21 @@ def get_extrema_grid(nz,N2):
 def get_stewart_grid(Htot,H=6e3, dzd = 199.1, min_dz=2.3, depfac=1.01):
 
     """
-    Grid generation from 
+    Grid generation method and code from 
     Stewart, Kial & Hogg, A.McC & Griffies, Stephen & Heerdegen, A.P. & Ward, M.L. & Spence, P. & England, Matthew. (2017).
     Vertical resolution of baroclinic modes in global ocean models. Ocean Modelling. 113. 10.1016/j.ocemod.2017.03.012.
     as posted at
     https://github.com/kialstewart/vertical_grid_for_ocean_models
 
     Parameters:
-    H: maximum depth of your ocean (approximately)? in meters
+    Htot: depth of the current column of water in meters
+    H: maximum depth of your (global) ocean (approximately) in meters
     dzd: maximum grid spacing (the grid spacing at the deepest point in the ocean) in meters
     min_dz: minimum grid spacing (the grid spacing at the ocean surface) in meters
     depfac: tune sharpness of the hyperbolic tangent (<1 is sharp, 1 is neutral, >1 is gentle) / total number of levels
 
+    Return:
+    zi_stwt: cell interfaces of the grid
     """
 
     ################
@@ -252,6 +299,12 @@ def get_MOM6_zGrid(Htot):
     Marques, G. M., Shao, A. E., Bachman, S. D., Danabasoglu, G., & Bryan, F. O. (2023). Representing eddy diffusion in the surface
     boundary layer of ocean models with general vertical coordinates. Journal of Advances in Modeling Earth Systems, 15, e2023MS003751.
     https://doi.org/10.1029/2023MS003751 
+
+    Paramters: 
+    Htot: water column/domain depth in meters
+    
+    Return:
+    zi_mom6: cell interfaces of the grid
     """
 
     h_mom6 = np.array([2.5, 2.5, 2.5, 2.5, 2.77, 3.38, 4.01, 4.65, 5.29, 5.95, 6.61, 7.28, 7.97, 8.66, 9.37,\
@@ -280,10 +333,14 @@ def get_OM4_isoGrid(Htot, N2, f=1e-4, beta=2e-11, rho_top=1025., shft=9):
     $$\rho_p=\rho(S,\theta,p_r+0.01(p-p_r))$$
 
     Parameters:
+    Htot: water column/domain depth in meters
     f: local Coriolis
     beta: local Coriolis gradient
     rho_top: density at the surface
     tune_shift: tunable parameter to tweak target range
+
+    Return:
+    zi_iso: cell interfaces of the grid
     """
     
     rhoiso = np.array([1010.0, 1014.3034, 1017.8088, 1020.843, 1023.5566, 1025.813, 1027.0275, 1027.9114, 1028.6422,\
