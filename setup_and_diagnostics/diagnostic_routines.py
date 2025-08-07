@@ -8,21 +8,25 @@ import xarray as xr
 import scipy.linalg as linalg
 from scipy.fft import fft2, fftfreq
 
-def get_timesteps(case_dir,max_it,logfile='out.txt'):
+def get_timesteps(case_dir,logfile='out.txt'):
     """
     Get the size of the timesteps from the raw outfile from QGN
 
     Input
     case_dir :: path to simulation directory including raw QGN log file, default out.txt
-    max_it :: maximum number of iterations to read
     logfile :: name of the output log file from the simulation, default 'out.txt'
+
+    Output
+    time :: total simulation time for each logged iteration in days (following QGN output convention)
+    tstep :: timestep for each logged iteration in seconds (following QGN output convention)
     """
     
     import re
     
     match_number = re.compile('-?\ *[0-9]+\.?[0-9]*(?:[Ee]\ *-?\ *[0-9]+)?')
-    
-    tstep = np.zeros(max_it) ## time step in seconds
+
+    time = [0]       ## total simulation time from start in days
+    tstep = [np.nan] ## time step in seconds
     with open(case_dir+logfile) as f:
         l = 0
         while True:
@@ -36,31 +40,20 @@ def get_timesteps(case_dir,max_it,logfile='out.txt'):
         while True:
             res = [float(x) for x in re.findall(match_number, line)]
             try:
-                itn = int(res[0])
+                time.append(res[0])
+                tstep.append(res[1])
             except:
-#                 print(case_dir,l,'t',line,res)
-                break
-            
-            try:
-                line = f.readline()
-                if not line:
-                    return tstep
-                l = l+1
-                res = [float(x) for x in re.findall(match_number, line)]
-                tstep[itn] = res[0]
-            except:
-#                 print(case_dir,l,'dt',line,res)
                 break
             
             while True:
                 line = f.readline()
                 if not line:
-                    return tstep
+                    return time, tstep
                 l = l+1
                 if 'Time since inception' in line:
                     break
                 
-    return tstep
+    return time, tstep
 
 def get_mode_order(case_dir,nz,logfile='out.txt'):
     """
