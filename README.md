@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/663683914.svg)](https://zenodo.org/badge/latestdoi/663683914)
+
 # QGN: An N-Layer QG code in Fortran
 Periodic domain size and other physical parameters are set in parameters.f90. Units are MKS. The number of time steps is set in QGN_Driver.
 
@@ -14,4 +16,4 @@ The current version compiles and runs without errors on Cheyenne (NCAR) using in
 
 At NCAR, after loading intel and mkl modules, you need to copy or link `/glade/u/apps/opt/intel/2019u5/mkl/include/mkl_dfti.f90` into the current directory. (location may change if you're using a different version of mkl.)
 
-The code was first described in [Grooms (2016)](https://doi.org/10.1016/j.ocemod.2016.09.005). SD Bachman ported the code to [Chapel](https://github.com/sdbachman/Chapel_QGN). Rachel Robey contributed to the jupyter notebook that generates the background and added improved restarts.
+The code was first described in [Grooms (2016)](https://doi.org/10.1016/j.ocemod.2016.09.005). SD Bachman ported the code to [Chapel](https://github.com/sdbachman/Chapel_QGN). Rachel Robey contributed Python code to set up input files and to read and plot diagnostics of the output.
